@@ -1,7 +1,10 @@
-from graph import graph
 import sqlite3
 import os
 import time
+from dotenv import load_dotenv
+load_dotenv()
+
+from graph import graph
 from database import DB_PATH
 
 def print_audit_log():
@@ -14,13 +17,13 @@ def print_audit_log():
         c.execute("SELECT receipt_id, duplicate_match, compliance_verdict, final_decision FROM audit_log")
         rows = c.fetchall()
         for r in rows:
-            print(f"{r[0]:<22} | Dup: {r[1]:<14} | Comp: {r[2]:<10} | Final: {r[3]}")
+            print(f"{r[0]:<22} | Dup: {str(r[1]):<14} | Comp: {str(r[2]):<10} | Final: {str(r[3])}")
     except sqlite3.OperationalError:
         print("Audit log empty or not created yet.")
     conn.close()
     print("-----------------\n")
 
-def run_scenario(scenario_id, desc, thread_id):
+def run_scenario(scenario_id, desc, thread_id, employee_id, note, image_path):
     print(f"\n[{scenario_id}] {desc}")
     config = {"configurable": {"thread_id": thread_id}}
     
@@ -36,19 +39,13 @@ def run_scenario(scenario_id, desc, thread_id):
 
     initial_state = {
         "receipt_id": scenario_id,
-        "employee_id": "EMP001",
-        "employee_note": "Business expense",
-        "image_path": "receipts/dummy.jpg",
+        "employee_id": employee_id,
+        "employee_note": note,
+        "image_path": image_path,
         "extraction_retries": 0
     }
-    
-    if scenario_id == "TEST-07-EXCEPTION":
-        initial_state["employee_note"] = "Manager approved exception for this software"
-    elif scenario_id == "TEST-04-POSSIBLE-DUP":
-        # Fake a duplicate image name so duplicate_check flags it
-        initial_state["image_path"] = "receipts/duplicate_fake.jpg"
         
-    print("Invoking graph...")
+    print(f"Invoking graph with image: {image_path}...")
     result = graph.invoke(initial_state, config=config)
     
     snap = graph.get_state(config)
@@ -56,23 +53,31 @@ def run_scenario(scenario_id, desc, thread_id):
         print(f"[PAUSED] Graph execution paused. Waiting for human review.")
     else:
         print(f"[OK] Auto-resolved! Final Decision: {result.get('final_decision')}")
+        print(f"Reasoning: {result.get('final_reasoning')}")
 
 def main():
     scenarios = [
-        ("TEST-01-CLEAN", "Clean, obviously compliant -> auto-approve"),
-        ("TEST-02-VIOLATION", "Clear policy violation -> auto-reject"),
-        ("TEST-03-EXACT-DUP", "Exact duplicate -> auto-reject"),
-        ("TEST-04-POSSIBLE-DUP", "Possible duplicate match -> human review"),
-        ("TEST-05-AMBIGUOUS-APP", "Ambiguous (alcohol) -> human review"),
-        ("TEST-06-AMBIGUOUS-REJ", "Ambiguous (alcohol) -> human review"),
-        ("TEST-07-EXCEPTION", "Manager exception claimed -> human review"),
-        ("TEST-08-BLURRY", "Blurry -> retries -> succeeds")
+        (
+            "REAL-TEST-01",
+            "Starbucks coffee receipt - should be compliant",
+            "EMP001",
+            "Morning coffee before client call",
+            "receipts/Starbuck_Receipt.jpeg"
+        ),
+        (
+            "REAL-TEST-02",
+            "Restaurant dinner receipt - could be ambiguous or auto-approved depending on LLM interpretation",
+            "EMP005",
+            "Client dinner with John Doe (Acme Corp)",
+            "receipts/Restaurant-Receipt.png"
+        )
     ]
     
-    print("Running Mocked LLM Test Scenarios...")
-    for s_id, desc in scenarios:
-        run_scenario(s_id, desc, f"thread_{s_id}")
-        time.sleep(0.5)
+    print("Running Real LLM Test Scenarios...")
+    for s_id, desc, emp, note, img in scenarios:
+        run_scenario(s_id, desc, f"thread_{s_id}", emp, note, img)
+        # short pause to prevent rate limit
+        time.sleep(2)
 
     print("\nInitial runs complete. Run 'python human_review.py' to unblock paused tests.")
     print_audit_log()

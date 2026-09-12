@@ -1,5 +1,8 @@
 import sqlite3
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
 from graph import graph, conn
 
 def get_pending_threads():
