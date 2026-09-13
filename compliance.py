@@ -2,7 +2,6 @@ import os
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
 from models import State, ComplianceVerdict
-from database import get_employee_history
 
 POLICY_PATH = os.path.join(os.path.dirname(__file__), "data", "policy.md")
 
@@ -25,10 +24,7 @@ def compliance_node(state: State) -> dict:
         with open(POLICY_PATH, "r", encoding="utf-8") as f:
             policy_text = f.read()
             
-    # 2. Get the employee history
-    history_text = get_employee_history(employee_id)
-    
-    # 3. Format the receipt data for the prompt
+    # 2. Format the receipt data for the prompt
     receipt_str = f"Vendor: {receipt_data.vendor}\nDate: {receipt_data.date}\nAmount: ${receipt_data.total_amount}\n"
     receipt_str += f"Alcohol present: {receipt_data.alcohol_appears}\n"
     receipt_str += "Items:\n" + "\n".join([f"- {item.description} (${item.amount})" for item in receipt_data.line_items])
@@ -40,9 +36,6 @@ def compliance_node(state: State) -> dict:
 
     # Company Policy:
     {policy_text}
-
-    # Employee Recent Spending History:
-    {history_text}
 
     # Current Expense Submission:
     Employee ID: {employee_id}

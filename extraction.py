@@ -3,6 +3,7 @@ import os
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
 from models import State, ReceiptData
+from database import insert_processing_receipt
 
 def extraction_node(state: State) -> dict:
     """
@@ -45,6 +46,13 @@ def extraction_node(state: State) -> dict:
     
     try:
         data = llm.invoke([msg])
+        
+        # INSERT INTO DB as processing to encumber budget immediately
+        if data:
+            temp_state = state.copy()
+            temp_state["receipt_data"] = data
+            insert_processing_receipt(temp_state)
+            
     except Exception as e:
         print(f"Extraction LLM call failed: {e}")
         data = None

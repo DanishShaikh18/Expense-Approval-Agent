@@ -35,8 +35,12 @@ class State(TypedDict):
     extraction_retries: int
     receipt_data: Optional[ReceiptData]
     
-    # State updated by Duplicate Check node
-    duplicate_match: Optional[Literal["exact_match", "possible_match", "no_match"]]
+    # State updated by Pattern Check node
+    match_type: Optional[Literal["exact_match", "possible_match", "no_match"]]
+    anomalous: Optional[bool]
+    
+    # State updated by Budget Check node
+    budget_status: Optional[Literal["within_budget", "over_budget"]]
     
     # State updated by Compliance node
     compliance_verdict: Optional[ComplianceVerdict]

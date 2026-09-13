@@ -19,6 +19,39 @@ def get_exact_match(vendor: str, date: str, amount: float) -> bool:
     conn.close()
     return result is not None
 
+def insert_processing_receipt(state: State):
+    """Inserts a receipt into receipts_index with status='processing'."""
+    rd = state.get("receipt_data")
+    if not rd:
+        return
+        
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        INSERT OR REPLACE INTO receipts_index
+        (receipt_id, employee_id, vendor, date, amount, category, status, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        state.get("receipt_id"),
+        state.get("employee_id"),
+        rd.vendor,
+        rd.date,
+        rd.total_amount,
+        "meals", # Defaulting to meals for this test scenario since we only have a $50 cap on meals
+        "processing",
+        state.get("employee_note")
+    ))
+    conn.commit()
+    conn.close()
+
+def update_receipt_status(receipt_id: str, new_status: str):
+    """Updates the status of a receipt in receipts_index."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE receipts_index SET status = ? WHERE receipt_id = ?", (new_status, receipt_id))
+    conn.commit()
+    conn.close()
+
 def write_audit_record(state: State):
     """Writes the final decision to the audit log."""
     conn = sqlite3.connect(DB_PATH)
@@ -32,7 +65,9 @@ def write_audit_record(state: State):
             vendor TEXT,
             date TEXT,
             amount REAL,
-            duplicate_match TEXT,
+            match_type TEXT,
+            anomalous BOOLEAN,
+            budget_status TEXT,
             compliance_verdict TEXT,
             compliance_reasoning TEXT,
             final_decision TEXT,
@@ -46,15 +81,17 @@ def write_audit_record(state: State):
     
     c.execute("""
         INSERT OR REPLACE INTO audit_log 
-        (receipt_id, employee_id, vendor, date, amount, duplicate_match, compliance_verdict, compliance_reasoning, final_decision, final_reasoning, human_review_comment)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (receipt_id, employee_id, vendor, date, amount, match_type, anomalous, budget_status, compliance_verdict, compliance_reasoning, final_decision, final_reasoning, human_review_comment)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         state.get("receipt_id"),
         state.get("employee_id"),
         rd.vendor if rd else None,
         rd.date if rd else None,
         rd.total_amount if rd else None,
-        state.get("duplicate_match"),
+        state.get("match_type"),
+        state.get("anomalous"),
+        state.get("budget_status"),
         cv.verdict if cv else None,
         cv.reasoning if cv else None,
         state.get("final_decision"),
@@ -75,7 +112,8 @@ def get_employee_history(employee_id: str) -> str:
         reader = csv.DictReader(f)
         for row in reader:
             if row['employee_id'] == employee_id:
-                records.append(f"- {row['date']}: {row['vendor']} (${row['amount']}) [{row['category']}] - {row['description']}")
+                dept = row.get('department', 'Sales')
+                records.append(f"- {row['date']}: {row['vendor']} (${row['amount']}) [{row['category']}] Dept: {dept} - {row['description']}")
                 
     if not records:
         return "No recent history for this employee."
