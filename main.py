@@ -1,86 +1,86 @@
-import sqlite3
 import os
-import time
+import uuid
+import argparse
 from dotenv import load_dotenv
 load_dotenv()
 
 from graph import graph
-from database import DB_PATH
 
-def print_audit_log():
-    print("\n--- AUDIT LOG ---")
-    if not os.path.exists(DB_PATH):
-        return
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    try:
-        c.execute("SELECT receipt_id, match_type, anomalous, budget_status, compliance_verdict, final_decision FROM audit_log")
-        rows = c.fetchall()
-        for r in rows:
-            print(f"{r[0]:<15} | Dup: {str(r[1]):<10} | Anom: {str(r[2]):<5} | Budg: {str(r[3]):<12} | Comp: {str(r[4]):<10} | Final: {str(r[5])}")
-    except sqlite3.OperationalError:
-        print("Audit log empty or not created yet.")
-    conn.close()
-    print("-----------------\n")
+def process_expense(receipt_id: str, employee_id: str, image_path: str, employee_note: str = "") -> dict:
+    """
+    Submits an expense to the LangGraph workflow and runs it until completion or human interrupt.
+    """
+    if not os.path.exists(image_path):
+        print(f"Error: Receipt image not found at '{image_path}'")
+        return {}
 
-def run_scenario(scenario_id, desc, thread_id, employee_id, note, image_path):
-    print(f"\n[{scenario_id}] {desc}")
+    thread_id = f"thread_{receipt_id}"
     config = {"configurable": {"thread_id": thread_id}}
-    
-    # Check if this thread was already started and paused
-    snap = graph.get_state(config)
-    if snap and "human_review" in snap.next:
-        print("This scenario is currently paused for human review. Run human_review.py.")
-        return
-        
-    if snap and not snap.next and snap.values.get("final_decision"):
-        print(f"Already completed with decision: {snap.values.get('final_decision')}")
-        return
 
     initial_state = {
-        "receipt_id": scenario_id,
+        "receipt_id": receipt_id,
         "employee_id": employee_id,
-        "employee_note": note,
+        "employee_note": employee_note,
         "image_path": image_path,
         "extraction_retries": 0
     }
-        
-    print(f"Invoking graph with image: {image_path}...")
+
+    print(f"\n--- Submitting Expense [{receipt_id}] ---")
+    print(f"Employee ID  : {employee_id}")
+    print(f"Receipt Image: {image_path}")
+    print(f"Employee Note: {employee_note or '(None)'}")
+    print("Processing through LangGraph workflow...\n")
+
     result = graph.invoke(initial_state, config=config)
-    
+
+    # Check whether the graph paused at human review or completed
     snap = graph.get_state(config)
     if snap and "human_review" in snap.next:
-        print(f"[PAUSED] Graph execution paused. Waiting for human review.")
+        print("[STATUS: PAUSED] Expense flagged for Human Review.")
+        print("Reason: Flagged by policy ambiguity, budget limit, spending anomaly, or claimed exception.")
+        print("Action: Run 'python human_review.py' to review and resolve this expense.")
     else:
-        print(f"[OK] Auto-resolved! Final Decision: {result.get('final_decision')}")
-        print(f"Reasoning: {result.get('final_reasoning')}")
+        decision = result.get("final_decision", "Unknown")
+        reasoning = result.get("final_reasoning", "No reasoning provided.")
+        print(f"[STATUS: COMPLETED] Final Decision: {decision.upper()}")
+        print(f"Reasoning: {reasoning}")
+
+    return result
 
 def main():
-    # Both from EMP001 (Sales department, Meals budget cap is $50)
-    scenarios = [
-        (
-            "BUDGET-TEST-01",
-            "Starbucks coffee receipt - should be compliant and within $50 budget",
-            "EMP001",
-            "Morning coffee before client call",
-            "receipts/Starbuck_Receipt.jpeg"
-        ),
-        (
-            "BUDGET-TEST-02",
-            "Restaurant dinner receipt - pushes total over $50 cap -> human review",
-            "EMP001",
-            "Client dinner with John Doe (Acme Corp)",
-            "receipts/Restaurant-Receipt.png"
-        )
-    ]
-    
-    print("Running Budget Limit Tests...")
-    for s_id, desc, emp, note, img in scenarios:
-        run_scenario(s_id, desc, f"thread_{s_id}", emp, note, img)
-        time.sleep(2)
+    parser = argparse.ArgumentParser(description="Expense Approval Agent")
+    parser.add_argument("--image", type=str, help="Path to receipt image", default=None)
+    parser.add_argument("--employee", type=str, help="Employee ID (e.g. EMP001)", default=None)
+    parser.add_argument("--note", type=str, help="Employee note or justification", default="")
+    parser.add_argument("--id", type=str, help="Custom Receipt ID", default=None)
 
-    print("\nInitial runs complete. Run 'python human_review.py' to unblock paused tests.")
-    print_audit_log()
+    args = parser.parse_args()
+
+    # Interactive prompts if CLI arguments are not provided
+    image_path = args.image
+    if not image_path:
+        default_img = "receipts/Starbuck_Receipt.jpeg"
+        user_val = input(f"Enter receipt image path [default: {default_img}]: ").strip()
+        image_path = user_val if user_val else default_img
+
+    employee_id = args.employee
+    if not employee_id:
+        default_emp = "EMP001"
+        user_val = input(f"Enter employee ID [default: {default_emp}]: ").strip()
+        employee_id = user_val if user_val else default_emp
+
+    note = args.note
+    if not note and not args.employee:
+        note = input("Enter employee note (optional): ").strip()
+
+    receipt_id = args.id or f"EXP-{uuid.uuid4().hex[:6].upper()}"
+
+    process_expense(
+        receipt_id=receipt_id,
+        employee_id=employee_id,
+        image_path=image_path,
+        employee_note=note
+    )
 
 if __name__ == "__main__":
     main()

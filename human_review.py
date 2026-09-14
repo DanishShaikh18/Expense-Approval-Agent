@@ -37,7 +37,9 @@ def run_human_review():
             state = state_snap.values
             rd = state.get('receipt_data')
             cv = state.get('compliance_verdict')
-            dup = state.get('duplicate_match')
+            match_type = state.get('match_type')
+            anomalous = state.get('anomalous')
+            budget_status = state.get('budget_status')
             
             print("\n" + "="*50)
             print(f"REVIEW NEEDED FOR RECEIPT: {state.get('receipt_id')}")
@@ -48,7 +50,8 @@ def run_human_review():
                 print(f"Extracted: {rd.vendor} | {rd.date} | ${rd.total_amount}")
                 print(f"Alcohol: {rd.alcohol_appears} | Confidence: {rd.confidence_score}")
             print("-" * 20)
-            print(f"Duplicate check: {dup}")
+            print(f"Pattern Match: {match_type} | Spending Anomaly: {anomalous}")
+            print(f"Budget Status: {budget_status}")
             if cv:
                 print(f"Compliance verdict: {cv.verdict.upper()}")
                 print(f"Exception claimed: {cv.exception_claimed}")

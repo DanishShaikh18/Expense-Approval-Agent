@@ -16,7 +16,6 @@ def budget_check_node(state: State) -> dict:
     employee_id = state.get("employee_id")
     new_amount = receipt_data.total_amount
     new_date = receipt_data.date
-    receipt_id = state.get("receipt_id")
     
     try:
         new_d = datetime.strptime(new_date, "%Y-%m-%d")

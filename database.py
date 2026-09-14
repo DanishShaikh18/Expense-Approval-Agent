@@ -1,23 +1,9 @@
 import sqlite3
-import csv
 import os
-import json
 from models import State
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "receipts_index.db")
 HISTORY_CSV_PATH = os.path.join(os.path.dirname(__file__), "data", "employee_history.csv")
-
-def get_exact_match(vendor: str, date: str, amount: float) -> bool:
-    """Checks the database for an exact metadata match (vendor, date, amount)."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "SELECT 1 FROM receipts_index WHERE vendor = ? AND date = ? AND amount = ?",
-        (vendor, date, amount)
-    )
-    result = c.fetchone()
-    conn.close()
-    return result is not None
 
 def insert_processing_receipt(state: State):
     """Inserts a receipt into receipts_index with status='processing'."""
@@ -101,21 +87,3 @@ def write_audit_record(state: State):
     
     conn.commit()
     conn.close()
-
-def get_employee_history(employee_id: str) -> str:
-    """Returns a formatted summary of the employee's recent spending pattern."""
-    if not os.path.exists(HISTORY_CSV_PATH):
-        return "No history found."
-        
-    records = []
-    with open(HISTORY_CSV_PATH, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if row['employee_id'] == employee_id:
-                dept = row.get('department', 'Sales')
-                records.append(f"- {row['date']}: {row['vendor']} (${row['amount']}) [{row['category']}] Dept: {dept} - {row['description']}")
-                
-    if not records:
-        return "No recent history for this employee."
-        
-    return "\n".join(records)

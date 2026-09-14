@@ -29,7 +29,7 @@ def compliance_node(state: State) -> dict:
     receipt_str += f"Alcohol present: {receipt_data.alcohol_appears}\n"
     receipt_str += "Items:\n" + "\n".join([f"- {item.description} (${item.amount})" for item in receipt_data.line_items])
 
-    # 4. Construct prompt
+    # 3. Construct prompt
     prompt = f"""
     You are an automated corporate expense compliance officer. 
     Analyze the following expense submission based strictly on the provided company policy.
