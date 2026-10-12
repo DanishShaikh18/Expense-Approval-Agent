@@ -3,8 +3,10 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 import sqlite3
 import os
 
+os.environ["LANGGRAPH_STRICT_MSGPACK"] = "false"
+
 from models import State
-from extraction import extraction_node
+from extraction import analysis_node
 from pattern_check import pattern_check_node
 from compliance import compliance_node
 from budget_check import budget_check_node
@@ -13,20 +15,6 @@ from database import write_audit_record, update_receipt_status
 # ---------------------------------------------------------
 # Graph Nodes & Logic
 # ---------------------------------------------------------
-
-def check_confidence_edge(state: State) -> list[str]:
-    """Confidence gate conditional edge."""
-    rd = state.get("receipt_data")
-    retries = state.get("extraction_retries", 0)
-    
-    if rd and rd.confidence_score < 0.8:
-        if retries < 2:
-            return ["extraction"] # Loop back
-        else:
-            return ["human_review"] # Escalate
-    
-    # Fan out to parallel nodes
-    return ["pattern_check", "compliance", "budget_check"]
 
 def route_join_node(state: State) -> dict:
     """
@@ -124,7 +112,7 @@ def human_review_dummy_node(state: State) -> dict:
 workflow = StateGraph(State)
 
 # Add nodes
-workflow.add_node("extraction", extraction_node)
+workflow.add_node("analysis", analysis_node)
 workflow.add_node("pattern_check", pattern_check_node)
 workflow.add_node("compliance", compliance_node)
 workflow.add_node("budget_check", budget_check_node)
@@ -133,20 +121,12 @@ workflow.add_node("finalize", finalize_node)
 workflow.add_node("human_review", human_review_dummy_node)
 
 # Add edges
-workflow.add_edge(START, "extraction")
+workflow.add_edge(START, "analysis")
 
-# Conditional fan-out from extraction
-workflow.add_conditional_edges(
-    "extraction",
-    check_confidence_edge,
-    {
-        "extraction": "extraction",
-        "human_review": "human_review",
-        "pattern_check": "pattern_check",
-        "compliance": "compliance",
-        "budget_check": "budget_check"
-    }
-)
+# Direct fan-out from analysis to checks (no confidence gate)
+workflow.add_edge("analysis", "pattern_check")
+workflow.add_edge("analysis", "compliance")
+workflow.add_edge("analysis", "budget_check")
 
 # Parallel branches converge on route_join
 workflow.add_edge("pattern_check", "route_join")

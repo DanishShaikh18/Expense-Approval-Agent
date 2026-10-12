@@ -5,60 +5,78 @@ from models import State, ComplianceVerdict
 
 POLICY_PATH = os.path.join(os.path.dirname(__file__), "data", "policy.md")
 
+
 def compliance_node(state: State) -> dict:
     """
-    Compliance & risk check node logic (LLM call).
-    Outputs compliance verdict based on structured data, policy, and history.
+    Compliance & policy check node (LLM call).
+
+    Receives:
+    - The employee's claim (claim_amount, expense_category, employee_note)
+    - Receipt analysis as supporting evidence (summary, receipt_amount, matches_claim)
+    - The full company policy text
+
+    Outputs a ComplianceVerdict: compliant / violation / ambiguous.
+    It does NOT use claim_amount from the receipt — only from state["claim_amount"].
     """
-    receipt_data = state.get("receipt_data")
-    if not receipt_data:
-        # If extraction failed, we can't do compliance
+    receipt_analysis = state.get("receipt_analysis")
+    if not receipt_analysis:
+        # Cannot do compliance without analysis
         return {"compliance_verdict": None}
 
+    claim_amount = state.get("claim_amount")
+    expense_category = state.get("expense_category", "")
     employee_id = state.get("employee_id", "UNKNOWN")
     note = state.get("employee_note", "")
-    
-    # 1. Load the policy
+
+    # Load policy
     policy_text = ""
     if os.path.exists(POLICY_PATH):
         with open(POLICY_PATH, "r", encoding="utf-8") as f:
             policy_text = f.read()
-            
-    # 2. Format the receipt data for the prompt
-    receipt_str = f"Vendor: {receipt_data.vendor}\nDate: {receipt_data.date}\nAmount: ${receipt_data.total_amount}\n"
-    receipt_str += f"Alcohol present: {receipt_data.alcohol_appears}\n"
-    receipt_str += "Items:\n" + "\n".join([f"- {item.description} (${item.amount})" for item in receipt_data.line_items])
 
-    # 3. Construct prompt
-    prompt = f"""
-    You are an automated corporate expense compliance officer. 
-    Analyze the following expense submission based strictly on the provided company policy.
+    # Format receipt evidence
+    ra = receipt_analysis
+    receipt_evidence = f"""Receipt Summary: {ra.summary}
+Receipt Expense Type: {ra.expense_type}
+Receipt Amount (evidence only): {f"${ra.receipt_amount}" if ra.receipt_amount is not None else "Unreadable"}
+Receipt Appears to Match Claim: {ra.matches_claim}
+Receipt Analysis Reasoning: {ra.reasoning}"""
 
-    # Company Policy:
-    {policy_text}
+    prompt = f"""You are an automated corporate expense compliance officer.
 
-    # Current Expense Submission:
-    Employee ID: {employee_id}
-    Employee Note: '{note}'
-    
-    # Extracted Receipt Data:
-    {receipt_str}
-    
-    Task: 
-    1. Determine if this expense is compliant, a violation, or ambiguous (gray area).
-    2. Check if the employee's note explicitly claims a manager has already approved this as an exception.
-    3. Provide a brief reasoning for your verdict.
-    """
+Your job is to determine whether this expense claim complies with company policy.
+
+## EMPLOYEE CLAIM (Authoritative — this is what is being reimbursed if approved)
+- Employee ID: {employee_id}
+- Claim Amount: ${claim_amount}
+- Expense Category: {expense_category}
+- Employee Note: "{note or '(none)'}"
+
+## RECEIPT EVIDENCE (Supporting evidence only — the receipt amount does NOT replace the claim amount)
+{receipt_evidence}
+
+## COMPANY POLICY
+{policy_text}
+
+## YOUR TASK
+1. Evaluate whether the employee's CLAIMED AMOUNT (${claim_amount}) and EXPENSE CATEGORY ({expense_category}) comply with company policy.
+2. Use the receipt evidence to inform your judgment (e.g. if receipt shows alcohol, that is relevant).
+3. If the employee's note claims a manager has already approved this as a special exception, set exception_claimed = true.
+4. Provide a brief, specific reasoning for your verdict.
+
+IMPORTANT:
+- Base your compliance verdict on the CLAIM amount (${claim_amount}), not the receipt amount.
+- The receipt amount is evidence — it may support or contradict the claim, but the claim amount is what is being evaluated.
+- Do NOT approve or reject — only output: compliant / violation / ambiguous.
+"""
 
     llm = ChatGoogleGenerativeAI(model="gemini-3.8-flash", temperature=0).with_structured_output(ComplianceVerdict)
     msg = HumanMessage(content=prompt)
-    
+
     try:
         verdict = llm.invoke([msg])
     except Exception as e:
-        print(f"Compliance LLM call failed: {e}")
+        print(f"[compliance_node] LLM call failed: {e}")
         verdict = None
 
-    return {
-        "compliance_verdict": verdict
-    }
+    return {"compliance_verdict": verdict}

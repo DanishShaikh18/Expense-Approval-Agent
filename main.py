@@ -6,7 +6,7 @@ load_dotenv()
 
 from graph import graph
 
-def process_expense(receipt_id: str, employee_id: str, image_path: str, employee_note: str = "") -> dict:
+def process_expense(receipt_id: str, employee_id: str, claim_amount: float, expense_category: str, image_path: str, employee_note: str = "") -> dict:
     """
     Submits an expense to the LangGraph workflow and runs it until completion or human interrupt.
     """
@@ -20,15 +20,18 @@ def process_expense(receipt_id: str, employee_id: str, image_path: str, employee
     initial_state = {
         "receipt_id": receipt_id,
         "employee_id": employee_id,
+        "claim_amount": claim_amount,
+        "expense_category": expense_category,
         "employee_note": employee_note,
-        "image_path": image_path,
-        "extraction_retries": 0
+        "image_path": image_path
     }
 
     print(f"\n--- Submitting Expense [{receipt_id}] ---")
-    print(f"Employee ID  : {employee_id}")
-    print(f"Receipt Image: {image_path}")
-    print(f"Employee Note: {employee_note or '(None)'}")
+    print(f"Employee ID      : {employee_id}")
+    print(f"Claim Amount     : ${claim_amount} (AUTHORITATIVE)")
+    print(f"Expense Category : {expense_category}")
+    print(f"Receipt Image    : {image_path}")
+    print(f"Employee Note    : {employee_note or '(None)'}")
     print("Processing through LangGraph workflow...\n")
 
     result = graph.invoke(initial_state, config=config)
@@ -48,15 +51,32 @@ def process_expense(receipt_id: str, employee_id: str, image_path: str, employee
     return result
 
 def main():
+    # Hide msgpack warnings
+    os.environ["LANGGRAPH_STRICT_MSGPACK"] = "false"
+
     parser = argparse.ArgumentParser(description="Expense Approval Agent")
+    parser.add_argument("--amount", type=float, help="Employee claimed amount", default=None)
+    parser.add_argument("--category", type=str, help="Expense category (e.g. Dinner, Travel)", default=None)
+    parser.add_argument("--note", type=str, help="Employee note or justification", default="")
     parser.add_argument("--image", type=str, help="Path to receipt image", default=None)
     parser.add_argument("--employee", type=str, help="Employee ID (e.g. EMP001)", default=None)
-    parser.add_argument("--note", type=str, help="Employee note or justification", default="")
     parser.add_argument("--id", type=str, help="Custom Receipt ID", default=None)
 
     args = parser.parse_args()
 
     # Interactive prompts if CLI arguments are not provided
+    claim_amount_str = args.amount
+    if claim_amount_str is None:
+        user_val = input("Enter claim amount (e.g. 1200.0) [default: 50.0]: ").strip()
+        claim_amount = float(user_val) if user_val else 50.0
+    else:
+        claim_amount = float(claim_amount_str)
+
+    expense_category = args.category
+    if not expense_category:
+        user_val = input("Enter expense category [default: meals]: ").strip()
+        expense_category = user_val if user_val else "meals"
+        
     image_path = args.image
     if not image_path:
         default_img = "receipts/Starbuck_Receipt.jpeg"
@@ -78,6 +98,8 @@ def main():
     process_expense(
         receipt_id=receipt_id,
         employee_id=employee_id,
+        claim_amount=claim_amount,
+        expense_category=expense_category,
         image_path=image_path,
         employee_note=note
     )

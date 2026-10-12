@@ -7,8 +7,6 @@ from graph import graph, conn
 
 def get_pending_threads():
     """Queries the SQLite checkpointer for threads that might be paused."""
-    # The checkpointer tables might have threads.
-    # A simpler way since this is a local demo is just querying the checkpoints table.
     cursor = conn.cursor()
     try:
         cursor.execute("SELECT DISTINCT thread_id FROM checkpoints")
@@ -35,7 +33,7 @@ def run_human_review():
         if state_snap and "human_review" in state_snap.next:
             pending_found = True
             state = state_snap.values
-            rd = state.get('receipt_data')
+            ra = state.get('receipt_analysis')
             cv = state.get('compliance_verdict')
             match_type = state.get('match_type')
             anomalous = state.get('anomalous')
@@ -44,11 +42,18 @@ def run_human_review():
             print("\n" + "="*50)
             print(f"REVIEW NEEDED FOR RECEIPT: {state.get('receipt_id')}")
             print(f"Employee: {state.get('employee_id')}")
+            print(f"Claim Amount: ${state.get('claim_amount')} (AUTHORITATIVE)")
+            print(f"Expense Category: {state.get('expense_category')}")
             print(f"Note: {state.get('employee_note')}")
             print("-" * 20)
-            if rd:
-                print(f"Extracted: {rd.vendor} | {rd.date} | ${rd.total_amount}")
-                print(f"Alcohol: {rd.alcohol_appears} | Confidence: {rd.confidence_score}")
+            if ra:
+                print(f"Receipt Analysis Summary: {ra.summary}")
+                print(f"Receipt Expense Type: {ra.expense_type}")
+                print(f"Receipt Amount (evidence only): ${ra.receipt_amount if ra.receipt_amount is not None else 'Unreadable'}")
+                print(f"Matches Claim: {ra.matches_claim}")
+                print(f"Analysis Reasoning: {ra.reasoning}")
+            else:
+                print("No receipt analysis available.")
             print("-" * 20)
             print(f"Pattern Match: {match_type} | Spending Anomaly: {anomalous}")
             print(f"Budget Status: {budget_status}")
@@ -70,8 +75,6 @@ def run_human_review():
             # Update the state with the human decision
             print(f"Updating state and resuming graph for {thread_id}...")
             
-            # Since human_review_dummy_node takes state, we just update the state
-            # and resume. LangGraph will run human_review_dummy_node next.
             graph.update_state(
                 config,
                 {
@@ -79,7 +82,7 @@ def run_human_review():
                     "final_reasoning": f"Human review decision: {decision}",
                     "human_review_comment": comment
                 },
-                as_node="human_review" # Provide the update as if it came from the human_review node
+                as_node="human_review"
             )
             
             # Resume the graph
